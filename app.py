@@ -14,7 +14,12 @@ import os
 
 import streamlit as st
 
-from utils.analyze import analyze_document, compare_findings
+from utils.analyze import (
+    RIGHTS_GROUPS,
+    analyze_financial,
+    analyze_rights,
+    compare_findings,
+)
 from utils.auth import require_password
 from utils.loader import process_uploaded_document
 from utils.ocr import ocr_pdf_pages
@@ -156,15 +161,17 @@ def render_document_section(label: str, session_key: str):
 # ─────────────────────────────────────────────
 # 3단계: 찾은 내용을 한쪽 열에 그려주는 함수
 # ─────────────────────────────────────────────
-def render_findings_column(label: str, doc_data: dict, findings: dict):
+def render_findings_column(label: str, doc_data: dict, findings: dict,
+                           categories):
     """
-    label    : "계약서" 또는 "제안서"
-    doc_data : st.session_state 의 문서 데이터 (pdf_path 등)
-    findings : analyze_document 결과 {"금융조건":[...], "채권보전조치":[...]}
+    label      : "계약서" 또는 "제안서"
+    doc_data   : st.session_state 의 문서 데이터 (pdf_path 등)
+    findings   : 분석 결과 {그룹명: [...]}
+    categories : 표시할 그룹명 순서 리스트
     """
     st.subheader(f"📌 {label}에서 찾은 내용")
 
-    for category in ("금융조건", "채권보전조치"):
+    for category in categories:
         items = findings.get(category, [])
         st.markdown(f"#### {category} ({len(items)}건)")
 
@@ -192,7 +199,7 @@ def render_findings_column(label: str, doc_data: dict, findings: dict):
 
 
 def render_step3():
-    st.header("3단계: 핵심 내용 찾기 (금융조건 · 채권보전조치)")
+    st.header("3단계: 금융조건 찾기")
 
     has_contract = "contract" in st.session_state
     has_im = "im" in st.session_state
@@ -215,13 +222,13 @@ def render_step3():
 
     st.write("아래 버튼을 누르면 두 문서를 LLM으로 분석해 핵심 내용을 찾습니다. (수십 초 걸릴 수 있어요)")
 
-    if st.button("🔎 핵심 내용 찾기 실행", type="primary"):
+    if st.button("🔎 금융조건 찾기 실행", type="primary", key="run_step3"):
         with st.spinner("계약서 분석 중..."):
-            st.session_state["findings_contract"] = analyze_document(
+            st.session_state["findings_contract"] = analyze_financial(
                 st.session_state["contract"]["pages"], "계약서", api_key
             )
         with st.spinner("제안서 분석 중..."):
-            st.session_state["findings_im"] = analyze_document(
+            st.session_state["findings_im"] = analyze_financial(
                 st.session_state["im"]["pages"], "제안서", api_key
             )
         st.success("분석 완료!")
@@ -235,12 +242,14 @@ def render_step3():
                 "계약서",
                 st.session_state["contract"],
                 st.session_state["findings_contract"],
+                ["금융조건"],
             )
         with right:
             render_findings_column(
                 "제안서",
                 st.session_state["im"],
                 st.session_state["findings_im"],
+                ["금융조건"],
             )
 
 
@@ -375,14 +384,68 @@ def render_step4():
     st.write(comparison.summary)
 
 
+def render_step5():
+    st.header("5단계: 권리·통제 구조 찾기")
+    st.caption(
+        "선행/후행/채권보전 반영, 의사결정 권한, 담보 실행, 기한이익상실(EOD)을 찾습니다."
+    )
+
+    has_contract = "contract" in st.session_state
+    has_im = "im" in st.session_state
+    if not (has_contract and has_im):
+        st.info(
+            "먼저 **1단계(계약서)**와 **2단계(제안서)** 탭에서 두 문서를 모두 올려주세요. "
+            "둘 다 준비되면 여기서 분석할 수 있습니다."
+        )
+        return
+
+    api_key = get_api_key()
+    if not api_key:
+        st.error("Anthropic(클로드) API 키가 설정되지 않았습니다.")
+        return
+
+    st.write("아래 버튼을 누르면 두 문서에서 권리·통제 구조 항목을 찾습니다. (수십 초 걸릴 수 있어요)")
+
+    if st.button("🔎 권리·통제 구조 찾기 실행", type="primary", key="run_step5"):
+        with st.spinner("계약서 분석 중..."):
+            st.session_state["rights_contract"] = analyze_rights(
+                st.session_state["contract"]["pages"], "계약서", api_key
+            )
+        with st.spinner("제안서 분석 중..."):
+            st.session_state["rights_im"] = analyze_rights(
+                st.session_state["im"]["pages"], "제안서", api_key
+            )
+        st.success("분석 완료!")
+
+    # 결과가 있으면 좌우 분할(4개 그룹)로 표시
+    if "rights_contract" in st.session_state and "rights_im" in st.session_state:
+        st.divider()
+        left, right = st.columns(2)
+        with left:
+            render_findings_column(
+                "계약서",
+                st.session_state["contract"],
+                st.session_state["rights_contract"],
+                RIGHTS_GROUPS,
+            )
+        with right:
+            render_findings_column(
+                "제안서",
+                st.session_state["im"],
+                st.session_state["rights_im"],
+                RIGHTS_GROUPS,
+            )
+
+
 # ─────────────────────────────────────────────
 # 단계 이동 (위쪽 선택 + 아래쪽 이전/다음 버튼)
 # ─────────────────────────────────────────────
 STEP_LABELS = [
     "📄 1단계: 계약서",
     "📑 2단계: 제안서(IM)",
-    "🔎 3단계: 핵심 내용 찾기",
-    "📊 4단계: 비교·정리",
+    "🔎 3단계: 금융조건",
+    "📊 4단계: 금융조건 비교",
+    "🔐 5단계: 권리·통제 찾기",
 ]
 
 if "nav" not in st.session_state:
@@ -413,8 +476,10 @@ elif idx == 1:
     render_document_section("제안서", "im")
 elif idx == 2:
     render_step3()
-else:
+elif idx == 3:
     render_step4()
+else:
+    render_step5()
 
 # ── 아래쪽 이전/다음 버튼 ──────────────────────
 st.divider()

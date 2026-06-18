@@ -18,16 +18,16 @@ from pydantic import BaseModel
 MODEL = "claude-opus-4-8"
 
 
-# ── 클로드가 채워줄 결과의 '형식'을 미리 정의 ──────────────
-class Finding(BaseModel):
-    item: str  # 항목 이름 (예: 대출금액, 담보)
+# ── 클로드가 채워줄 결과의 '형식'(어떤 단계에서도 공용) ──────────
+class ExtractFinding(BaseModel):
+    group: str  # 이 내용이 속한 그룹(분류) 이름
+    item: str  # 항목 이름 (예: 대출금액, 담보, 당연 EOD)
     content: str  # 원문 핵심 내용
     page: Optional[int] = None  # 원본 페이지 번호
 
 
-class DocAnalysis(BaseModel):
-    financial_conditions: List[Finding]  # 금융조건 목록
-    creditor_protections: List[Finding]  # 채권보전조치 목록
+class ExtractResult(BaseModel):
+    findings: List[ExtractFinding]
 
 
 # 분석에서 통째로 제외할 페이지 제목(공백 무시하고 비교).
@@ -56,75 +56,107 @@ def _build_page_marked_text(pages: list) -> str:
     return "\n\n".join(blocks)
 
 
-SYSTEM_PROMPT = """당신은 금융 계약서·제안서를 검토하는 꼼꼼한 한국어 금융 분석 보조원입니다.
-주어진 문서 텍스트에서 '금융조건'과 '채권보전조치'에 해당하는 내용을 의미 기준으로 찾아냅니다.
+EXTRACT_SYSTEM = """당신은 금융 계약서·제안서를 검토하는 꼼꼼한 한국어 금융 분석 보조원입니다.
+주어진 문서에서 요청한 항목에 해당하는 내용을 '의미 기준'으로 찾아냅니다.
 제목만 보지 말고, 실제 의미가 해당하면 추출하세요.
-
-[금융조건 예시] 대출/투자 금액, 금리(이자율), 만기, 상환방식, 수수료, 연체이자, 이자지급주기 등
-[채권보전조치 예시] 담보, 근저당, 질권, 보증, 연대보증, 에스크로, 재무약정(covenant), 기한이익상실, 우선변제 등
 
 규칙:
 - 문서에 실제로 적힌 내용만 추출하세요. 추측하거나 지어내지 마세요.
-- 각 항목의 page에는 그 내용이 등장한 [페이지 N] 표시의 숫자 N을 넣으세요.
-- content에는 원문의 핵심 문장을 최대한 그대로 담되 너무 길면 요약하세요.
-- item에는 그 내용이 어떤 항목인지 짧은 한국어 이름을 적으세요(예: 대출금액, 담보).
-- 해당 내용이 없으면 빈 목록으로 두세요."""
-
-USER_PROMPT_TEMPLATE = """아래는 '{doc_label}' 문서의 전체 텍스트입니다.
-금융조건(financial_conditions)과 채권보전조치(creditor_protections)를 찾아 정리해 주세요.
-
-문서 텍스트:
-\"\"\"
-{document_text}
-\"\"\""""
+- page 에는 그 내용이 등장한 [페이지 N] 표시의 숫자 N을 넣으세요.
+- content 에는 원문 핵심을 담되 너무 길면 요약하세요.
+- item 에는 그 내용이 어떤 항목인지 짧은 한국어 이름을 적으세요.
+- group 에는 아래 사용자가 제시한 '그룹명' 중 정확히 하나를 그대로 넣으세요.
+- 해당 내용이 없으면 그 그룹은 비워 두세요(억지로 만들지 말 것)."""
 
 
-def analyze_document(pages: list, doc_label: str, api_key: str) -> dict:
+def _extract(pages: list, doc_label: str, api_key: str,
+             task_instructions: str, group_names: list) -> dict:
     """
-    pages    : extract_text_by_page 결과 [{"page":1,"text":"..."}, ...]
-    doc_label: "계약서" 또는 "제안서"
-    api_key  : Anthropic API 키
-    반환값   : {"금융조건": [...], "채권보전조치": [...]}
-               각 항목은 {"항목","내용","페이지"} 형태
+    범용 추출기: 문서에서 task_instructions 가 설명한 항목들을 찾아
+    {그룹명: [{"항목","내용","페이지"}, ...]} 형태로 반환.
     """
     client = anthropic.Anthropic(api_key=api_key)
-
     document_text = _build_page_marked_text(pages)
-    user_prompt = USER_PROMPT_TEMPLATE.format(
-        doc_label=doc_label,
-        document_text=document_text,
+
+    user_prompt = (
+        f"아래는 '{doc_label}' 문서의 전체 텍스트입니다.\n"
+        f"{task_instructions}\n\n"
+        f"각 내용을 group/item/content/page 로 정리하세요. "
+        f"group 은 반드시 다음 중 하나로 정확히 표기: {group_names}\n\n"
+        f"문서 텍스트:\n\"\"\"\n{document_text}\n\"\"\""
     )
 
-    # 구조화 출력: 위에서 정의한 DocAnalysis 형식으로 받기
     response = client.messages.parse(
         model=MODEL,
         max_tokens=16000,
-        system=SYSTEM_PROMPT,
+        system=EXTRACT_SYSTEM,
         messages=[{"role": "user", "content": user_prompt}],
-        output_format=DocAnalysis,
+        output_format=ExtractResult,
     )
-
-    result = response.parsed_output
-
-    # 화면(app.py)이 쓰는 한국어 키 형태로 변환
-    return {
-        "금융조건": _to_korean(result.financial_conditions),
-        "채권보전조치": _to_korean(result.creditor_protections),
-    }
+    return _group_findings(response.parsed_output.findings, group_names)
 
 
-def _to_korean(findings: List[Finding]) -> list:
-    """Finding 목록을 {"항목","내용","페이지"} 딕셔너리 목록으로 변환."""
-    out = []
+def _group_findings(findings: list, group_names: list) -> dict:
+    """ExtractFinding 목록을 그룹별 딕셔너리로 묶습니다(그룹 순서 유지)."""
+    def norm(s):
+        return (s or "").replace(" ", "")
+
+    name_by_norm = {norm(g): g for g in group_names}
+    out = {g: [] for g in group_names}  # 그룹 순서대로 초기화
+
     for f in findings:
-        out.append(
-            {
-                "항목": (f.item or "").strip(),
-                "내용": (f.content or "").strip(),
-                "페이지": f.page,
-            }
-        )
+        rec = {
+            "항목": (f.item or "").strip(),
+            "내용": (f.content or "").strip(),
+            "페이지": f.page,
+        }
+        key = name_by_norm.get(norm(f.group))
+        if key:
+            out[key].append(rec)
+        else:
+            # 예상 못 한 그룹명이면 잃어버리지 않게 그대로 보관
+            out.setdefault((f.group or "기타").strip(), []).append(rec)
     return out
+
+
+# ── 3단계: 금융조건만 찾기 ──────────────────────────
+FINANCIAL_GROUPS = ["금융조건"]
+FINANCIAL_TASK = (
+    "이 문서에서 '금융조건'에 해당하는 내용을 모두 찾으세요. "
+    "예: 대출/투자 금액, 금리(이자율), 만기, 상환방식, 수수료, 연체이자, 이자지급주기 등. "
+    "찾은 내용의 group 은 모두 '금융조건' 으로 하세요."
+)
+
+
+def analyze_financial(pages: list, doc_label: str, api_key: str) -> dict:
+    """3단계: {'금융조건': [...]} 반환."""
+    return _extract(pages, doc_label, api_key, FINANCIAL_TASK, FINANCIAL_GROUPS)
+
+
+# ── 5단계: 권리·통제 구조(4개 그룹) 찾기 ──────────────
+RIGHTS_GROUPS = ["반영 확인", "의사결정", "담보 실행", "기한이익상실(EOD)"]
+RIGHTS_TASK = """이 문서에서 아래 4개 그룹에 해당하는 '권리·통제 구조' 내용을 찾으세요.
+각 내용을 알맞은 group 으로 분류하세요(아래 그룹명을 정확히 사용).
+
+[반영 확인]
+- 선행조건, 후행조건, 채권보전 조건이 제안서(IM)와 맞게 반영되어 있는지
+- 금액, 금리가 제대로 반영되어 있는지
+[의사결정]
+- 대리금융기관(대리은행) 단독 결정 사항
+- 다수대주(과반/특정비율 동의) 의사결정 사항 (있는 대로 항목별 리스팅)
+- 전원대주(전원 동의) 의사결정 사항 (항목별 리스팅)
+- 일부 대주가 다수대주 요건을 충족하는지 여부
+[담보 실행]
+- 각 트렌치(Tranche) 대주가 담보를 단독으로 처분(실행)할 권리가 있는지 여부
+- 공매(공개매각)권 실행에 있어 후순위 트렌치의 제약 사항
+[기한이익상실(EOD)]
+- 당연(자동) 기한이익상실 사유 (항목별 리스팅)
+- 기타(통지·청구형 등) 기한이익상실 사유 (항목별 리스팅)"""
+
+
+def analyze_rights(pages: list, doc_label: str, api_key: str) -> dict:
+    """5단계: {'반영 확인':[...], '의사결정':[...], '담보 실행':[...], '기한이익상실(EOD)':[...]} 반환."""
+    return _extract(pages, doc_label, api_key, RIGHTS_TASK, RIGHTS_GROUPS)
 
 
 # ════════════════════════════════════════════
