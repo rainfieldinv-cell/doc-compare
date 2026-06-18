@@ -473,76 +473,43 @@ def render_step5():
 
 
 # ─────────────────────────────────────────────
-# 단계 이동 (위쪽 선택 + 아래쪽 이전/다음 버튼)
+# 화면 구성: 큰 탭 3개 + 각 안에 하위 탭
+#   1) 원본 읽기   2) 금융조건 검토   3) 권리·통제 구조 검토
+# (기능은 그대로, 배치만 묶음. 원본 텍스트는 session_state로 공유됨)
 # ─────────────────────────────────────────────
-STEP_LABELS = [
-    "📄 1단계: 계약서",
-    "📑 2단계: 제안서(IM)",
-    "🔎 3단계: 금융조건",
-    "📊 4단계: 금융조건 비교",
-    "🔐 5단계: 권리·통제 찾기",
-    "📋 6단계: 권리·통제 비교",
-]
 
-if "nav" not in st.session_state:
-    st.session_state["nav"] = STEP_LABELS[0]
-
-
-def goto_step(label):
-    """버튼 콜백: 다음 화면 그리기 전에 단계를 바꿔둠(안전한 방식)."""
-    st.session_state["nav"] = label
-
-
-# 위쪽 단계 선택 (탭 대신 라디오) — 어디서든 바로 점프 가능
-st.radio(
-    "단계 이동",
-    STEP_LABELS,
-    key="nav",
-    horizontal=True,
-    label_visibility="collapsed",
-)
-idx = STEP_LABELS.index(st.session_state["nav"])
-
-st.divider()
-
-# 현재 단계 내용 그리기
-if idx == 0:
-    render_document_section("계약서", "contract")
-elif idx == 1:
-    render_document_section("제안서", "im")
-elif idx == 2:
-    render_step3()
-elif idx == 3:
-    render_step4()
-elif idx == 4:
-    render_step5()
-else:
-    render_step6()
-
-# ── 아래쪽 이전/다음 버튼 ──────────────────────
-st.divider()
-prev_col, mid_col, next_col = st.columns([1, 2, 1])
-
-if idx > 0:
-    prev_col.button(
-        f"◀ 이전: {STEP_LABELS[idx - 1].split(':')[0].strip()}",
-        on_click=goto_step,
-        args=(STEP_LABELS[idx - 1],),
-        use_container_width=True,
-    )
-
-# 가운데: 두 문서 준비 상태 한눈에
+# 두 문서 준비 상태 한눈에
 has_contract = "contract" in st.session_state
 has_im = "im" in st.session_state
-mid_col.caption(
-    f"계약서 {'✅' if has_contract else '⏳'}  ·  제안서 {'✅' if has_im else '⏳'}"
+st.caption(
+    f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
+    f"제안서 {'✅' if has_im else '⏳'}"
 )
 
-if idx < len(STEP_LABELS) - 1:
-    next_col.button(
-        f"다음: {STEP_LABELS[idx + 1].split(':')[0].strip()} ▶",
-        on_click=goto_step,
-        args=(STEP_LABELS[idx + 1],),
-        type="primary",
-        use_container_width=True,
-    )
+tab_read, tab_fin, tab_rights = st.tabs(
+    ["📄 원본 읽기", "💰 금융조건 검토", "🔐 권리·통제 구조 검토"]
+)
+
+# 1) 원본 읽기 — 계약서/제안서 읽기
+with tab_read:
+    read_contract, read_im = st.tabs(["1) 계약서 읽기", "2) 제안서(IM) 읽기"])
+    with read_contract:
+        render_document_section("계약서", "contract")
+    with read_im:
+        render_document_section("제안서", "im")
+
+# 2) 금융조건 검토 — 핵심내용 찾기 / 비교·정리
+with tab_fin:
+    fin_find, fin_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
+    with fin_find:
+        render_step3()
+    with fin_compare:
+        render_step4()
+
+# 3) 권리·통제 구조 검토 — 핵심내용 찾기 / 비교·정리
+with tab_rights:
+    rights_find, rights_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
+    with rights_find:
+        render_step5()
+    with rights_compare:
+        render_step6()
