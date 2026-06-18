@@ -11,6 +11,7 @@
 """
 
 import os
+import uuid
 
 import streamlit as st
 
@@ -22,6 +23,7 @@ from utils.analyze import (
 )
 from utils.auth import require_password
 from utils.loader import process_uploaded_document
+from utils.memo import load_memos, save_memos
 from utils.ocr import ocr_pdf_pages
 from utils.pdf_utils import join_all_text
 from utils.render import render_page_image
@@ -46,13 +48,12 @@ def cached_page_image(pdf_path: str, page: int, highlight: str) -> bytes:
 # ─────────────────────────────────────────────
 # 화면 기본 설정
 # ─────────────────────────────────────────────
-st.set_page_config(page_title="계약서·제안서 비교 도구", layout="wide")
+st.set_page_config(page_title="계약서·제안서(IM) 비교", layout="wide")
 
 # 🔒 비밀번호 확인 (맞아야 아래 화면이 보임)
 require_password()
 
-st.title("📑 계약서·제안서(IM) 비교 도구")
-st.caption("1·2단계: 계약서 / 제안서 텍스트 추출")
+st.title("📑 계약서·제안서(IM) 비교")
 
 # 안내문 (법적 판단 아님)
 st.warning(
@@ -473,43 +474,112 @@ def render_step5():
 
 
 # ─────────────────────────────────────────────
-# 화면 구성: 큰 탭 3개 + 각 안에 하위 탭
+# "비교" 화면: 큰 탭 3개 + 각 안에 하위 탭
 #   1) 원본 읽기   2) 금융조건 검토   3) 권리·통제 구조 검토
 # (기능은 그대로, 배치만 묶음. 원본 텍스트는 session_state로 공유됨)
 # ─────────────────────────────────────────────
+def render_compare():
+    # 두 문서 준비 상태 한눈에
+    has_contract = "contract" in st.session_state
+    has_im = "im" in st.session_state
+    st.caption(
+        f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
+        f"제안서 {'✅' if has_im else '⏳'}"
+    )
 
-# 두 문서 준비 상태 한눈에
-has_contract = "contract" in st.session_state
-has_im = "im" in st.session_state
-st.caption(
-    f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
-    f"제안서 {'✅' if has_im else '⏳'}"
+    tab_read, tab_fin, tab_rights = st.tabs(
+        ["📄 원본 읽기", "💰 금융조건 검토", "🔐 권리·통제 구조 검토"]
+    )
+
+    # 1) 원본 읽기 — 계약서/제안서 읽기
+    with tab_read:
+        read_contract, read_im = st.tabs(["1) 계약서 읽기", "2) 제안서(IM) 읽기"])
+        with read_contract:
+            render_document_section("계약서", "contract")
+        with read_im:
+            render_document_section("제안서", "im")
+
+    # 2) 금융조건 검토 — 핵심내용 찾기 / 비교·정리
+    with tab_fin:
+        fin_find, fin_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
+        with fin_find:
+            render_step3()
+        with fin_compare:
+            render_step4()
+
+    # 3) 권리·통제 구조 검토 — 핵심내용 찾기 / 비교·정리
+    with tab_rights:
+        rights_find, rights_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
+        with rights_find:
+            render_step5()
+        with rights_compare:
+            render_step6()
+
+
+# ─────────────────────────────────────────────
+# "메모" 화면: 제목/문제점/추가의견 입력 → 파일에 저장(껐다 켜도 유지)
+# ─────────────────────────────────────────────
+def render_memo():
+    st.header("📝 메모")
+    st.caption("사업별 문제점·의견을 적어 저장해두는 공간입니다. (파일에 저장되어 유지)")
+
+    # 새 메모 입력 (제출하면 자동으로 칸 비움)
+    with st.form("memo_form", clear_on_submit=True):
+        title = st.text_input("제목(사업명)")
+        problem = st.text_area("문제점")
+        opinion = st.text_area("추가의견")
+        submitted = st.form_submit_button("➕ 새 메모 추가", type="primary")
+
+    if submitted:
+        if not (title.strip() or problem.strip() or opinion.strip()):
+            st.warning("내용을 한 가지 이상 입력해 주세요.")
+        else:
+            memos = load_memos()
+            memos.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    "제목": title.strip(),
+                    "문제점": problem.strip(),
+                    "추가의견": opinion.strip(),
+                }
+            )
+            save_memos(memos)
+            st.success("메모를 저장했습니다.")
+
+    st.divider()
+    st.subheader("저장된 메모")
+
+    memos = load_memos()
+    if not memos:
+        st.info("저장된 메모가 없습니다")
+        return
+
+    # 최신 메모가 위로 오게 역순 표시
+    for m in reversed(memos):
+        with st.container(border=True):
+            top, btn = st.columns([5, 1])
+            top.markdown(f"### {m.get('제목') or '(제목 없음)'}")
+            if btn.button("🗑 삭제", key=f"del_{m['id']}"):
+                remaining = [x for x in load_memos() if x["id"] != m["id"]]
+                save_memos(remaining)
+                st.rerun()
+            if m.get("문제점"):
+                st.markdown(f"**문제점**\n\n{m['문제점']}")
+            if m.get("추가의견"):
+                st.markdown(f"**추가의견**\n\n{m['추가의견']}")
+
+
+# ─────────────────────────────────────────────
+# 왼쪽 사이드바 메뉴: 비교 / 메모
+# ─────────────────────────────────────────────
+st.sidebar.title("메뉴")
+menu = st.sidebar.radio(
+    "화면 선택",
+    ["비교", "메모"],
+    label_visibility="collapsed",
 )
 
-tab_read, tab_fin, tab_rights = st.tabs(
-    ["📄 원본 읽기", "💰 금융조건 검토", "🔐 권리·통제 구조 검토"]
-)
-
-# 1) 원본 읽기 — 계약서/제안서 읽기
-with tab_read:
-    read_contract, read_im = st.tabs(["1) 계약서 읽기", "2) 제안서(IM) 읽기"])
-    with read_contract:
-        render_document_section("계약서", "contract")
-    with read_im:
-        render_document_section("제안서", "im")
-
-# 2) 금융조건 검토 — 핵심내용 찾기 / 비교·정리
-with tab_fin:
-    fin_find, fin_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
-    with fin_find:
-        render_step3()
-    with fin_compare:
-        render_step4()
-
-# 3) 권리·통제 구조 검토 — 핵심내용 찾기 / 비교·정리
-with tab_rights:
-    rights_find, rights_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
-    with rights_find:
-        render_step5()
-    with rights_compare:
-        render_step6()
+if menu == "비교":
+    render_compare()
+else:
+    render_memo()
