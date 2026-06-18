@@ -253,18 +253,18 @@ def render_step3():
             )
 
 
-def render_step4():
-    st.header("4단계: 비교 및 정리 (계약서 기준)")
+def _render_comparison(header, contract_key, im_key, comp_key,
+                       verify_prefix, btn_key, not_ready_msg):
+    """
+    4단계·6단계 공용 비교 화면.
+    contract_key/im_key : 비교할 '찾은 내용'이 담긴 session_state 키
+    comp_key            : 비교 결과를 저장할 session_state 키
+    verify_prefix       : 확인 체크박스 키 접두사(단계마다 달라야 함)
+    """
+    st.header(header)
 
-    ready = (
-        "findings_contract" in st.session_state
-        and "findings_im" in st.session_state
-    )
-    if not ready:
-        st.info(
-            "먼저 **🔎 3단계** 탭에서 '핵심 내용 찾기 실행'을 눌러 "
-            "두 문서의 핵심 내용을 찾아주세요. 그 결과로 여기서 비교합니다."
-        )
+    if not (contract_key in st.session_state and im_key in st.session_state):
+        st.info(not_ready_msg)
         return
 
     api_key = get_api_key()
@@ -274,16 +274,16 @@ def render_step4():
 
     st.write("계약서를 기준으로 제안서를 항목별로 비교하고, 수정 방향을 정리합니다.")
 
-    if st.button("📊 비교·정리 실행", type="primary"):
+    if st.button("📊 비교·정리 실행", type="primary", key=btn_key):
         with st.spinner("두 문서를 비교하는 중..."):
-            st.session_state["comparison"] = compare_findings(
-                st.session_state["findings_contract"],
-                st.session_state["findings_im"],
+            st.session_state[comp_key] = compare_findings(
+                st.session_state[contract_key],
+                st.session_state[im_key],
                 api_key,
             )
         st.success("비교 완료!")
 
-    comparison = st.session_state.get("comparison")
+    comparison = st.session_state.get(comp_key)
     if not comparison:
         return
 
@@ -298,7 +298,8 @@ def render_step4():
 
     # 확인 완료 개수 표시
     checked = sum(
-        1 for i in range(len(rows)) if st.session_state.get(f"verified_{i}", False)
+        1 for i in range(len(rows))
+        if st.session_state.get(f"{verify_prefix}{i}", False)
     )
     st.progress(
         (checked / len(rows)) if rows else 0.0,
@@ -306,28 +307,29 @@ def render_step4():
     )
 
     # 표 머리글
-    head = st.columns([0.7, 1.6, 3, 3, 1])
+    head = st.columns([0.6, 1.5, 2.8, 2.8, 1])
     head[0].markdown("**확인**")
     head[1].markdown("**항목**")
     head[2].markdown("**계약서**")
     head[3].markdown("**제안서**")
-    head[4].markdown("**상태**")
+    head[4].markdown("**일치 여부**")
 
     for i, r in enumerate(rows):
         with st.container(border=True):
-            c = st.columns([0.7, 1.6, 3, 3, 1])
+            c = st.columns([0.6, 1.5, 2.8, 2.8, 1])
 
             # ① 확인 체크박스 (체크 상태는 자동 저장됨)
             c[0].checkbox(
-                "확인", key=f"verified_{i}", label_visibility="collapsed"
+                "확인", key=f"{verify_prefix}{i}", label_visibility="collapsed"
             )
 
-            # ② 항목 이름 + 구분
+            # ② 항목 이름 + 그룹
             c[1].markdown(f"**{r.item}**  \n`{r.category}`")
 
-            # ③ 계약서 내용 + 이미지 보기
+            # ③ 계약서 내용 + 페이지번호 + 이미지 보기
             with c[2]:
-                st.markdown(r.contract_value or "_(없음)_")
+                pg = f" `({r.contract_page}p)`" if r.contract_page else ""
+                st.markdown((r.contract_value or "_(없음)_") + pg)
                 if r.contract_page:
                     with st.expander(f"🔍 계약서 {r.contract_page}p 원본 보기"):
                         try:
@@ -340,9 +342,10 @@ def render_step4():
                         except Exception as e:
                             st.caption(f"이미지 오류: {e}")
 
-            # ④ 제안서 내용 + 이미지 보기
+            # ④ 제안서 내용 + 페이지번호 + 이미지 보기
             with c[3]:
-                st.markdown(r.im_value or "_(없음)_")
+                pg = f" `({r.im_page}p)`" if r.im_page else ""
+                st.markdown((r.im_value or "_(없음)_") + pg)
                 if r.im_page:
                     with st.expander(f"🔍 제안서 {r.im_page}p 원본 보기"):
                         try:
@@ -355,7 +358,7 @@ def render_step4():
                         except Exception as e:
                             st.caption(f"이미지 오류: {e}")
 
-            # ⑤ 상태
+            # ⑤ 일치 여부
             badge = {
                 "일치": "🟢 일치",
                 "차이": "🔴 차이",
@@ -363,6 +366,10 @@ def render_step4():
                 "제안서에만 있음": "🟡 제안서에만",
             }.get(r.status, r.status)
             c[4].markdown(badge)
+
+            # 차이 설명(수정방향) — 일치가 아닌 항목만 표 안에 바로 표시
+            if r.status != "일치" and r.fix_instruction:
+                st.caption(f"💬 차이/수정: {r.fix_instruction}")
 
     # ── 차이/누락 항목만 모은 수정 지시 ───────────
     st.subheader("✏️ 제안서 수정 사항 (계약서에 맞추기)")
@@ -372,16 +379,44 @@ def render_step4():
     else:
         for r in diffs:
             with st.container(border=True):
+                pgc = f" ({r.contract_page}p)" if r.contract_page else ""
+                pgi = f" ({r.im_page}p)" if r.im_page else ""
                 st.markdown(f"**[{r.category}] {r.item}**  ·  상태: `{r.status}`")
                 c1, c2 = st.columns(2)
-                c1.markdown(f"📄 **계약서**\n\n{r.contract_value or '(없음)'}")
-                c2.markdown(f"📑 **제안서**\n\n{r.im_value or '(없음)'}")
+                c1.markdown(f"📄 **계약서**{pgc}\n\n{r.contract_value or '(없음)'}")
+                c2.markdown(f"📑 **제안서**{pgi}\n\n{r.im_value or '(없음)'}")
                 if r.fix_instruction:
                     st.info(f"➡️ **수정 방향:** {r.fix_instruction}")
 
     # ── 총평 ─────────────────────────────────
     st.subheader("📝 총평")
     st.write(comparison.summary)
+
+
+def render_step4():
+    _render_comparison(
+        header="4단계: 금융조건 비교·정리 (계약서 기준)",
+        contract_key="findings_contract",
+        im_key="findings_im",
+        comp_key="comparison",
+        verify_prefix="v4_",
+        btn_key="run_step4",
+        not_ready_msg="먼저 **🔎 3단계**에서 '금융조건 찾기 실행'을 눌러주세요. "
+        "그 결과로 여기서 비교합니다.",
+    )
+
+
+def render_step6():
+    _render_comparison(
+        header="6단계: 권리·통제 구조 비교·정리 (계약서 기준)",
+        contract_key="rights_contract",
+        im_key="rights_im",
+        comp_key="comparison_rights",
+        verify_prefix="v6_",
+        btn_key="run_step6",
+        not_ready_msg="먼저 **🔐 5단계**에서 '권리·통제 구조 찾기 실행'을 눌러주세요. "
+        "그 결과로 여기서 비교합니다.",
+    )
 
 
 def render_step5():
@@ -446,6 +481,7 @@ STEP_LABELS = [
     "🔎 3단계: 금융조건",
     "📊 4단계: 금융조건 비교",
     "🔐 5단계: 권리·통제 찾기",
+    "📋 6단계: 권리·통제 비교",
 ]
 
 if "nav" not in st.session_state:
@@ -478,8 +514,10 @@ elif idx == 2:
     render_step3()
 elif idx == 3:
     render_step4()
-else:
+elif idx == 4:
     render_step5()
+else:
+    render_step6()
 
 # ── 아래쪽 이전/다음 버튼 ──────────────────────
 st.divider()
