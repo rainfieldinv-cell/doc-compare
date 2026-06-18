@@ -30,10 +30,28 @@ class DocAnalysis(BaseModel):
     creditor_protections: List[Finding]  # 채권보전조치 목록
 
 
+# 분석에서 통째로 제외할 페이지 제목(공백 무시하고 비교).
+# 자체적으로 만드는 요약/개요 페이지라 비교 대상이 아닌 것들을 여기 추가.
+EXCLUDE_PAGE_KEYWORDS = [
+    "본건사모사채개요",  # "1.1 본 건 사모사채 개요" 요약 슬라이드
+]
+
+
+def _is_excluded_page(text: str) -> bool:
+    """이 페이지가 제외 대상 제목을 포함하는지(공백 무시)."""
+    norm = text.replace(" ", "").replace("\n", "").replace("\t", "")
+    return any(k in norm for k in EXCLUDE_PAGE_KEYWORDS)
+
+
 def _build_page_marked_text(pages: list) -> str:
-    """페이지 번호를 표시한 텍스트로 합칩니다. 클로드가 페이지를 인용할 수 있게."""
+    """
+    페이지 번호를 표시한 텍스트로 합칩니다. 클로드가 페이지를 인용할 수 있게.
+    EXCLUDE_PAGE_KEYWORDS 에 걸리는 페이지는 건너뜁니다(요약/개요 페이지 제외).
+    """
     blocks = []
     for item in pages:
+        if _is_excluded_page(item["text"]):
+            continue  # 제외 대상 페이지는 분석에 넣지 않음
         blocks.append(f"[페이지 {item['page']}]\n{item['text']}")
     return "\n\n".join(blocks)
 
