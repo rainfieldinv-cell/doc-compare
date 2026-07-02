@@ -70,7 +70,8 @@ def reset_all():
     """초기화 버튼: 올린 문서 + 분석 결과 + 화면 위치를 처음 상태로."""
     clear_analysis_results()
     for k in ["contract", "im", "uploader_contract", "uploader_im",
-              "section", "fulltext_contract", "fulltext_im"]:
+              "section", "sub_read", "sub_fin", "sub_rights",
+              "fulltext_contract", "fulltext_im"]:
         st.session_state.pop(k, None)
 
 
@@ -513,15 +514,57 @@ def render_step5():
 # ─────────────────────────────────────────────
 BIG_SECTIONS = ["📄 원본 읽기", "💰 금융조건 검토", "🔐 권리·통제 구조 검토"]
 
+# 각 구분의 하위 탭 라벨
+SUB_READ = ["1) 계약서 읽기", "2) 제안서(IM) 읽기"]
+SUB_FIN = ["핵심내용 찾기", "비교·정리"]
+SUB_RIGHTS = ["핵심내용 찾기", "비교·정리"]
 
-def goto_section(name):
-    """버튼 콜백: 큰 구분 이동(다음/이전)."""
-    st.session_state["section"] = name
+# 6단계 선형 순서: (구분, 하위탭 키, 하위탭 값, 다음버튼 표시이름)
+LINEAR = [
+    (BIG_SECTIONS[0], "sub_read", SUB_READ[0], "계약서 읽기"),
+    (BIG_SECTIONS[0], "sub_read", SUB_READ[1], "제안서 읽기"),
+    (BIG_SECTIONS[1], "sub_fin", SUB_FIN[0], "금융조건 찾기"),
+    (BIG_SECTIONS[1], "sub_fin", SUB_FIN[1], "금융조건 비교"),
+    (BIG_SECTIONS[2], "sub_rights", SUB_RIGHTS[0], "권리·통제 찾기"),
+    (BIG_SECTIONS[2], "sub_rights", SUB_RIGHTS[1], "권리·통제 비교"),
+]
+
+
+def _current_linear_index():
+    """지금 화면이 6단계 순서 중 몇 번째인지 계산."""
+    sec = st.session_state.get("section", BIG_SECTIONS[0])
+    for i, (s, sk, sv, _) in enumerate(LINEAR):
+        if s == sec and st.session_state.get(sk) == sv:
+            return i
+    for i, (s, _, _, _) in enumerate(LINEAR):  # 못 찾으면 그 구분의 첫 단계
+        if s == sec:
+            return i
+    return 0
+
+
+def goto_linear(delta):
+    """이전/다음 버튼 콜백: 6단계 순서로 한 칸 이동(구분+하위탭 동시 설정)."""
+    j = max(0, min(len(LINEAR) - 1, _current_linear_index() + delta))
+    sec, sk, sv, _ = LINEAR[j]
+    st.session_state["section"] = sec
+    st.session_state[sk] = sv
+
+
+def _subtabs(key, options):
+    """하위 탭도 '탭 모양'으로 그려주고 선택값 반환."""
+    with st.container(key="subtabs"):
+        return st.radio(
+            "하위 선택", options, key=key,
+            horizontal=True, label_visibility="collapsed",
+        )
 
 
 def render_compare():
-    if "section" not in st.session_state:
-        st.session_state["section"] = BIG_SECTIONS[0]
+    # 기본값 세팅
+    st.session_state.setdefault("section", BIG_SECTIONS[0])
+    st.session_state.setdefault("sub_read", SUB_READ[0])
+    st.session_state.setdefault("sub_fin", SUB_FIN[0])
+    st.session_state.setdefault("sub_rights", SUB_RIGHTS[0])
 
     # 문서 준비 상태 (한 줄)
     has_contract = "contract" in st.session_state
@@ -531,83 +574,85 @@ def render_compare():
         f"제안서 {'✅' if has_im else '⏳'}"
     )
 
-    # 큰 구분 선택 — 라디오를 CSS로 '탭 모양'으로 (동그라미 숨김 + 선택 밑줄)
+    # 라디오를 CSS로 '탭 모양'으로 (동그라미 숨김 + 선택 밑줄) — 큰 탭·하위 탭 공용
     st.markdown(
         """
         <style>
-        .st-key-bigtabs div[role="radiogroup"]{
+        .st-key-bigtabs div[role="radiogroup"],
+        .st-key-subtabs div[role="radiogroup"]{
             flex-direction:row; gap:4px; border-bottom:2px solid #e6e6e6;
         }
-        .st-key-bigtabs div[role="radiogroup"] label{
+        .st-key-bigtabs div[role="radiogroup"] label,
+        .st-key-subtabs div[role="radiogroup"] label{
             margin:0; padding:8px 18px; cursor:pointer; font-weight:600;
             color:#666; border-bottom:3px solid transparent;
         }
-        .st-key-bigtabs div[role="radiogroup"] label>div:first-child{ display:none; }
-        .st-key-bigtabs div[role="radiogroup"] label:has(input:checked){
+        .st-key-bigtabs div[role="radiogroup"] label>div:first-child,
+        .st-key-subtabs div[role="radiogroup"] label>div:first-child{ display:none; }
+        .st-key-bigtabs div[role="radiogroup"] label:has(input:checked),
+        .st-key-subtabs div[role="radiogroup"] label:has(input:checked){
             color:#ff4b4b; border-bottom:3px solid #ff4b4b;
         }
+        /* 초기화 버튼을 칸의 맨 오른쪽 끝으로 */
+        .st-key-resetbtn{ display:flex; justify-content:flex-end; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # 탭 줄: 왼쪽=탭 3개, 오른쪽=초기화 버튼(권리·통제 구조 검토 옆)
+    # 큰 탭 줄: 왼쪽=구분 3개, 맨 오른쪽=초기화 버튼
     tabs_col, reset_col = st.columns([5, 1], vertical_alignment="center")
     with tabs_col:
         with st.container(key="bigtabs"):
             st.radio(
-                "구분 선택",
-                BIG_SECTIONS,
-                key="section",
-                horizontal=True,
-                label_visibility="collapsed",
+                "구분 선택", BIG_SECTIONS, key="section",
+                horizontal=True, label_visibility="collapsed",
             )
     with reset_col:
-        st.button(
-            "🔄 초기화",
-            on_click=reset_all,
-            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
-        )
+        with st.container(key="resetbtn"):
+            st.button(
+                "🔄 초기화",
+                on_click=reset_all,
+                help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
+            )
 
-    sec_idx = BIG_SECTIONS.index(st.session_state["section"])
+    sec = st.session_state["section"]
 
-    # 선택된 큰 구분의 내용 그리기 (안쪽 하위 탭은 그대로)
-    if sec_idx == 0:
-        read_contract, read_im = st.tabs(["1) 계약서 읽기", "2) 제안서(IM) 읽기"])
-        with read_contract:
+    # 선택된 구분의 하위 탭 + 내용
+    if sec == BIG_SECTIONS[0]:
+        sub = _subtabs("sub_read", SUB_READ)
+        if sub == SUB_READ[0]:
             render_document_section("계약서", "contract")
-        with read_im:
+        else:
             render_document_section("제안서", "im")
-    elif sec_idx == 1:
-        fin_find, fin_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
-        with fin_find:
+    elif sec == BIG_SECTIONS[1]:
+        sub = _subtabs("sub_fin", SUB_FIN)
+        if sub == SUB_FIN[0]:
             render_step3()
-        with fin_compare:
+        else:
             render_step4()
     else:
-        rights_find, rights_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
-        with rights_find:
+        sub = _subtabs("sub_rights", SUB_RIGHTS)
+        if sub == SUB_RIGHTS[0]:
             render_step5()
-        with rights_compare:
+        else:
             render_step6()
 
-    # 하단 이전/다음 버튼
+    # 하단 이전/다음 버튼 (6단계 순서로 이동)
     st.divider()
+    idx = _current_linear_index()
     prev_col, _mid, next_col = st.columns([1, 2, 1])
-    if sec_idx > 0:
+    if idx > 0:
         prev_col.button(
-            "◀ 이전 단계",
-            on_click=goto_section,
-            args=(BIG_SECTIONS[sec_idx - 1],),
+            f"◀ 이전: {LINEAR[idx - 1][3]}",
+            on_click=goto_linear, args=(-1,),
             use_container_width=True,
         )
-    if sec_idx < len(BIG_SECTIONS) - 1:
+    if idx < len(LINEAR) - 1:
         next_col.button(
-            f"다음 단계 ▶  ({BIG_SECTIONS[sec_idx + 1]})",
-            on_click=goto_section,
-            args=(BIG_SECTIONS[sec_idx + 1],),
-            type="primary",
-            use_container_width=True,
+            f"다음: {LINEAR[idx + 1][3]} ▶",
+            on_click=goto_linear, args=(1,),
+            type="primary", use_container_width=True,
         )
 
 
