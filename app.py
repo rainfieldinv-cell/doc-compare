@@ -83,7 +83,25 @@ st.set_page_config(page_title="계약서·제안서(IM) 비교", layout="wide")
 # 🔒 비밀번호 확인 (맞아야 아래 화면이 보임)
 require_password()
 
-st.title("📑 계약서·제안서(IM) 비교")
+# 사이드바 메뉴 (어느 화면인지 먼저 확인 → 제목 옆 초기화 버튼 표시 여부 결정)
+st.sidebar.title("메뉴")
+menu = st.sidebar.radio(
+    "화면 선택",
+    ["비교", "메모"],
+    label_visibility="collapsed",
+)
+
+# 제목 줄 — 제목 옆(오른쪽)에 초기화 버튼 ('비교' 화면일 때만)
+title_col, reset_col, _sp = st.columns([3, 1, 3], vertical_alignment="bottom")
+with title_col:
+    st.title("📑 계약서·제안서(IM) 비교")
+with reset_col:
+    if menu == "비교":
+        st.button(
+            "🔄 초기화",
+            on_click=reset_all,
+            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
+        )
 
 # 안내문 (법적 판단 아님)
 st.warning(
@@ -590,21 +608,13 @@ def render_compare():
         unsafe_allow_html=True,
     )
 
-    # 문서 준비 상태 줄 — 글씨 바로 뒤에 초기화 버튼 (칸: 글씨 | 버튼 | 빈공간)
-    status_col, reset_col, _sp = st.columns([3, 1, 4], vertical_alignment="center")
+    # 문서 준비 상태
     has_contract = "contract" in st.session_state
     has_im = "im" in st.session_state
-    with status_col:
-        st.caption(
-            f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
-            f"제안서 {'✅' if has_im else '⏳'}"
-        )
-    with reset_col:
-        st.button(
-            "🔄 초기화",
-            on_click=reset_all,
-            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
-        )
+    st.caption(
+        f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
+        f"제안서 {'✅' if has_im else '⏳'}"
+    )
 
     # 큰 탭 줄 (구분 3개)
     with st.container(key="bigtabs"):
@@ -707,15 +717,8 @@ def render_memo():
 
 
 # ─────────────────────────────────────────────
-# 왼쪽 사이드바 메뉴: 비교 / 메모
+# 선택된 메뉴 화면 그리기 (메뉴는 위에서 이미 선택함)
 # ─────────────────────────────────────────────
-st.sidebar.title("메뉴")
-menu = st.sidebar.radio(
-    "화면 선택",
-    ["비교", "메모"],
-    label_visibility="collapsed",
-)
-
 if menu == "비교":
     render_compare()
 else:
