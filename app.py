@@ -91,17 +91,7 @@ menu = st.sidebar.radio(
     label_visibility="collapsed",
 )
 
-# 제목 줄 — 제목 옆(오른쪽)에 초기화 버튼 ('비교' 화면일 때만)
-title_col, reset_col, _sp = st.columns([3, 1, 3], vertical_alignment="bottom")
-with title_col:
-    st.title("📑 계약서·제안서(IM) 비교")
-with reset_col:
-    if menu == "비교":
-        st.button(
-            "🔄 초기화",
-            on_click=reset_all,
-            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
-        )
+st.title("📑 계약서·제안서(IM) 비교")
 
 # 안내문 (법적 판단 아님)
 st.warning(
@@ -645,16 +635,22 @@ def render_compare():
         else:
             render_step6()
 
-    # 하단 이전/다음 버튼 (6단계 순서로 이동)
+    # 하단 이전/다음 버튼 (6단계 순서) + 초기화(다음 버튼 바로 옆)
     st.divider()
     idx = _current_linear_index()
-    prev_col, _mid, next_col = st.columns([1, 2, 1])
+    prev_col, _mid, reset_col, next_col = st.columns([1.4, 1.2, 1, 1.4])
     if idx > 0:
         prev_col.button(
             f"◀ 이전: {LINEAR[idx - 1][3]}",
             on_click=goto_linear, args=(-1,),
             use_container_width=True,
         )
+    reset_col.button(
+        "🔄 초기화",
+        on_click=reset_all,
+        use_container_width=True,
+        help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
+    )
     if idx < len(LINEAR) - 1:
         next_col.button(
             f"다음: {LINEAR[idx + 1][3]} ▶",
