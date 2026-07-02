@@ -45,6 +45,35 @@ def cached_page_image(pdf_path: str, page: int, highlight: str) -> bytes:
     return render_page_image(pdf_path, page, highlight_text=highlight)
 
 
+# 분석 결과(3~6단계)만 지우는 키 목록
+_ANALYSIS_KEYS = [
+    "findings_contract",
+    "findings_im",
+    "rights_contract",
+    "rights_im",
+    "comparison",
+    "comparison_rights",
+]
+
+
+def clear_analysis_results():
+    """분석 결과(핵심내용·비교)를 모두 지웁니다. (원본 문서는 유지)"""
+    for k in _ANALYSIS_KEYS:
+        st.session_state.pop(k, None)
+    # 확인 체크박스 등 부수 상태도 정리
+    for k in list(st.session_state.keys()):
+        if k.startswith(("v4_", "v6_", "verified_")):
+            st.session_state.pop(k, None)
+
+
+def reset_all():
+    """초기화 버튼: 올린 문서 + 분석 결과 + 화면 위치를 처음 상태로."""
+    clear_analysis_results()
+    for k in ["contract", "im", "uploader_contract", "uploader_im",
+              "section", "fulltext_contract", "fulltext_im"]:
+        st.session_state.pop(k, None)
+
+
 # ─────────────────────────────────────────────
 # 화면 기본 설정
 # ─────────────────────────────────────────────
@@ -90,6 +119,10 @@ def render_document_section(label: str, session_key: str):
     if saved and saved.get("_sig") == file_sig:
         result = saved  # 이미 처리(또는 OCR)한 결과 그대로 사용
     else:
+        # 새(다른) 문서가 올라오면 이전 문서로 만든 분석 결과는 지운다
+        # (계약서/제안서 중 하나만 바꿔도 비교는 둘을 함께 쓰므로 전부 초기화)
+        if saved is not None:
+            clear_analysis_results()
         with st.spinner(f"{label}을(를) 읽는 중..."):
             try:
                 result = process_uploaded_document(uploaded)
@@ -474,46 +507,89 @@ def render_step5():
 
 
 # ─────────────────────────────────────────────
-# "비교" 화면: 큰 탭 3개 + 각 안에 하위 탭
+# "비교" 화면: 큰 구분 3개(버튼으로 넘길 수 있게) + 각 안에 하위 탭
 #   1) 원본 읽기   2) 금융조건 검토   3) 권리·통제 구조 검토
-# (기능은 그대로, 배치만 묶음. 원본 텍스트는 session_state로 공유됨)
+# (기능은 그대로. 원본 텍스트는 session_state로 공유됨)
 # ─────────────────────────────────────────────
+BIG_SECTIONS = ["📄 원본 읽기", "💰 금융조건 검토", "🔐 권리·통제 구조 검토"]
+
+
+def goto_section(name):
+    """버튼 콜백: 큰 구분 이동(다음/이전)."""
+    st.session_state["section"] = name
+
+
 def render_compare():
-    # 두 문서 준비 상태 한눈에
+    if "section" not in st.session_state:
+        st.session_state["section"] = BIG_SECTIONS[0]
+
+    # 상단 줄: 왼쪽=구분 선택(탭 모양), 오른쪽=초기화 버튼
+    left, right = st.columns([4, 1])
+    with left:
+        st.radio(
+            "구분 선택",
+            BIG_SECTIONS,
+            key="section",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    with right:
+        st.button(
+            "🔄 초기화",
+            on_click=reset_all,
+            use_container_width=True,
+            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
+        )
+
+    # 문서 준비 상태 한눈에
     has_contract = "contract" in st.session_state
     has_im = "im" in st.session_state
     st.caption(
         f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
         f"제안서 {'✅' if has_im else '⏳'}"
     )
+    st.divider()
 
-    tab_read, tab_fin, tab_rights = st.tabs(
-        ["📄 원본 읽기", "💰 금융조건 검토", "🔐 권리·통제 구조 검토"]
-    )
+    sec_idx = BIG_SECTIONS.index(st.session_state["section"])
 
-    # 1) 원본 읽기 — 계약서/제안서 읽기
-    with tab_read:
+    # 선택된 큰 구분의 내용 그리기 (안쪽 하위 탭은 그대로)
+    if sec_idx == 0:
         read_contract, read_im = st.tabs(["1) 계약서 읽기", "2) 제안서(IM) 읽기"])
         with read_contract:
             render_document_section("계약서", "contract")
         with read_im:
             render_document_section("제안서", "im")
-
-    # 2) 금융조건 검토 — 핵심내용 찾기 / 비교·정리
-    with tab_fin:
+    elif sec_idx == 1:
         fin_find, fin_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
         with fin_find:
             render_step3()
         with fin_compare:
             render_step4()
-
-    # 3) 권리·통제 구조 검토 — 핵심내용 찾기 / 비교·정리
-    with tab_rights:
+    else:
         rights_find, rights_compare = st.tabs(["핵심내용 찾기", "비교·정리"])
         with rights_find:
             render_step5()
         with rights_compare:
             render_step6()
+
+    # 하단 이전/다음 버튼
+    st.divider()
+    prev_col, _mid, next_col = st.columns([1, 2, 1])
+    if sec_idx > 0:
+        prev_col.button(
+            "◀ 이전 단계",
+            on_click=goto_section,
+            args=(BIG_SECTIONS[sec_idx - 1],),
+            use_container_width=True,
+        )
+    if sec_idx < len(BIG_SECTIONS) - 1:
+        next_col.button(
+            f"다음 단계 ▶  ({BIG_SECTIONS[sec_idx + 1]})",
+            on_click=goto_section,
+            args=(BIG_SECTIONS[sec_idx + 1],),
+            type="primary",
+            use_container_width=True,
+        )
 
 
 # ─────────────────────────────────────────────
