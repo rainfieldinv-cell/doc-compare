@@ -523,32 +523,51 @@ def render_compare():
     if "section" not in st.session_state:
         st.session_state["section"] = BIG_SECTIONS[0]
 
-    # 상단 줄: 왼쪽=구분 선택(탭 모양), 오른쪽=초기화 버튼
-    left, right = st.columns([4, 1])
-    with left:
-        st.radio(
-            "구분 선택",
-            BIG_SECTIONS,
-            key="section",
-            horizontal=True,
-            label_visibility="collapsed",
-        )
-    with right:
-        st.button(
-            "🔄 초기화",
-            on_click=reset_all,
-            use_container_width=True,
-            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
-        )
-
-    # 문서 준비 상태 한눈에
+    # 문서 준비 상태 (한 줄)
     has_contract = "contract" in st.session_state
     has_im = "im" in st.session_state
     st.caption(
         f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
         f"제안서 {'✅' if has_im else '⏳'}"
     )
-    st.divider()
+
+    # 큰 구분 선택 — 라디오를 CSS로 '탭 모양'으로 (동그라미 숨김 + 선택 밑줄)
+    st.markdown(
+        """
+        <style>
+        .st-key-bigtabs div[role="radiogroup"]{
+            flex-direction:row; gap:4px; border-bottom:2px solid #e6e6e6;
+        }
+        .st-key-bigtabs div[role="radiogroup"] label{
+            margin:0; padding:8px 18px; cursor:pointer; font-weight:600;
+            color:#666; border-bottom:3px solid transparent;
+        }
+        .st-key-bigtabs div[role="radiogroup"] label>div:first-child{ display:none; }
+        .st-key-bigtabs div[role="radiogroup"] label:has(input:checked){
+            color:#ff4b4b; border-bottom:3px solid #ff4b4b;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # 탭 줄: 왼쪽=탭 3개, 오른쪽=초기화 버튼(권리·통제 구조 검토 옆)
+    tabs_col, reset_col = st.columns([5, 1], vertical_alignment="center")
+    with tabs_col:
+        with st.container(key="bigtabs"):
+            st.radio(
+                "구분 선택",
+                BIG_SECTIONS,
+                key="section",
+                horizontal=True,
+                label_visibility="collapsed",
+            )
+    with reset_col:
+        st.button(
+            "🔄 초기화",
+            on_click=reset_all,
+            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
+        )
 
     sec_idx = BIG_SECTIONS.index(st.session_state["section"])
 
