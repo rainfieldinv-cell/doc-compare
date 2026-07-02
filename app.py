@@ -566,14 +566,6 @@ def render_compare():
     st.session_state.setdefault("sub_fin", SUB_FIN[0])
     st.session_state.setdefault("sub_rights", SUB_RIGHTS[0])
 
-    # 문서 준비 상태 (한 줄)
-    has_contract = "contract" in st.session_state
-    has_im = "im" in st.session_state
-    st.caption(
-        f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
-        f"제안서 {'✅' if has_im else '⏳'}"
-    )
-
     # 라디오를 CSS로 '탭 모양'으로 (동그라미 숨김 + 선택 밑줄) — 큰 탭·하위 탭 공용
     st.markdown(
         """
@@ -593,28 +585,33 @@ def render_compare():
         .st-key-subtabs div[role="radiogroup"] label:has(input:checked){
             color:#ff4b4b; border-bottom:3px solid #ff4b4b;
         }
-        /* 초기화 버튼을 칸의 맨 오른쪽 끝으로 */
-        .st-key-resetbtn{ display:flex; justify-content:flex-end; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # 큰 탭 줄: 왼쪽=구분 3개, 맨 오른쪽=초기화 버튼
-    tabs_col, reset_col = st.columns([5, 1], vertical_alignment="center")
-    with tabs_col:
-        with st.container(key="bigtabs"):
-            st.radio(
-                "구분 선택", BIG_SECTIONS, key="section",
-                horizontal=True, label_visibility="collapsed",
-            )
+    # 문서 준비 상태 줄 — 오른쪽(모래시계 옆)에 초기화 버튼
+    status_col, reset_col = st.columns([4, 1], vertical_alignment="center")
+    has_contract = "contract" in st.session_state
+    has_im = "im" in st.session_state
+    with status_col:
+        st.caption(
+            f"문서 준비 상태 — 계약서 {'✅' if has_contract else '⏳'}  ·  "
+            f"제안서 {'✅' if has_im else '⏳'}"
+        )
     with reset_col:
-        with st.container(key="resetbtn"):
-            st.button(
-                "🔄 초기화",
-                on_click=reset_all,
-                help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
-            )
+        st.button(
+            "🔄 초기화",
+            on_click=reset_all,
+            help="올린 문서와 분석 결과를 모두 지우고 처음부터 다시 시작합니다.",
+        )
+
+    # 큰 탭 줄 (구분 3개)
+    with st.container(key="bigtabs"):
+        st.radio(
+            "구분 선택", BIG_SECTIONS, key="section",
+            horizontal=True, label_visibility="collapsed",
+        )
 
     sec = st.session_state["section"]
 
