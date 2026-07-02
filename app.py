@@ -590,8 +590,8 @@ def render_compare():
         unsafe_allow_html=True,
     )
 
-    # 문서 준비 상태 줄 — 오른쪽(모래시계 옆)에 초기화 버튼
-    status_col, reset_col = st.columns([4, 1], vertical_alignment="center")
+    # 문서 준비 상태 줄 — 글씨 바로 뒤에 초기화 버튼 (칸: 글씨 | 버튼 | 빈공간)
+    status_col, reset_col, _sp = st.columns([3, 1, 4], vertical_alignment="center")
     has_contract = "contract" in st.session_state
     has_im = "im" in st.session_state
     with status_col:
