@@ -13,6 +13,10 @@ def require_password():
     비밀번호가 맞으면 True를 반환하고 화면을 계속 진행합니다.
     틀리거나 아직 입력 안 했으면 입력창만 보여주고 멈춥니다.
     """
+    # 비밀번호 제거: 통합 대시보드에서만 접근을 통제하므로 이 도구는 잠금 없이 통과합니다.
+    # (다시 잠그려면 아래 'return True' 한 줄만 지우면 원래대로 동작합니다.)
+    return True
+
     # 이미 로그인했으면 통과
     if st.session_state.get("authenticated"):
         return True
