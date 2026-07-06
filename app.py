@@ -103,21 +103,22 @@ st.warning(
 # ─────────────────────────────────────────────
 # 문서 1개를 처리하고 화면에 보여주는 공통 함수
 # ─────────────────────────────────────────────
-def render_document_section(label: str, session_key: str):
+def render_document_section(label: str, session_key: str, upload_hint: str):
     """
     label       : 화면에 보일 이름 ("계약서" 또는 "제안서")
     session_key : 결과를 저장해 둘 이름 ("contract" 또는 "im")
+    upload_hint : 업로드 칸 안내 문구(괄호 안 내용)
     """
     st.header(f"{label} 업로드")
 
     uploaded = st.file_uploader(
-        f"{label} 파일을 올려주세요 (PDF / 워드 .docx / 파워포인트 .pptx)",
+        f"{label} 파일을 올려주세요 ({upload_hint})",
         type=["pdf", "docx", "doc", "pptx", "ppt"],
         key=f"uploader_{session_key}",  # 탭마다 업로더를 구분
     )
 
     if uploaded is None:
-        st.info(f"위에 {label} 파일(PDF / 워드 / 파워포인트)을 올리면 텍스트 추출이 시작됩니다.")
+        st.info(f"위에 {label} 파일을 올리면 텍스트 추출이 시작됩니다.")
         return
 
     # 같은 파일은 한 번만 처리 (새로고침 때마다 다시 읽지 않도록,
@@ -619,9 +620,15 @@ def render_compare():
     if sec == BIG_SECTIONS[0]:
         sub = _subtabs("sub_read", SUB_READ)
         if sub == SUB_READ[0]:
-            render_document_section("계약서", "contract")
+            render_document_section(
+                "계약서", "contract",
+                "워드 권장 · PDF보다 워드가 더 정확합니다",
+            )
         else:
-            render_document_section("제안서", "im")
+            render_document_section(
+                "제안서", "im",
+                "PDF / 워드 / 파워포인트",
+            )
     elif sec == BIG_SECTIONS[1]:
         sub = _subtabs("sub_fin", SUB_FIN)
         if sub == SUB_FIN[0]:
