@@ -83,14 +83,6 @@ st.set_page_config(page_title="계약서·제안서(IM) 비교", layout="wide")
 # 🔒 비밀번호 확인 (맞아야 아래 화면이 보임)
 require_password()
 
-# 사이드바 메뉴 (어느 화면인지 먼저 확인 → 제목 옆 초기화 버튼 표시 여부 결정)
-st.sidebar.title("메뉴")
-menu = st.sidebar.radio(
-    "화면 선택",
-    ["비교", "메모"],
-    label_visibility="collapsed",
-)
-
 st.title("📑 계약서·제안서(IM) 비교")
 
 # 안내문 (법적 판단 아님)
@@ -769,9 +761,6 @@ def render_memo():
 
 
 # ─────────────────────────────────────────────
-# 선택된 메뉴 화면 그리기 (메뉴는 위에서 이미 선택함)
+# 화면 그리기 (메모 탭 제거 — 비교 기능만)
 # ─────────────────────────────────────────────
-if menu == "비교":
-    render_compare()
-else:
-    render_memo()
+render_compare()
