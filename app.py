@@ -592,7 +592,7 @@ def render_compare():
         .st-key-subtabs div[role="radiogroup"] label>div:first-child{ display:none; }
         .st-key-bigtabs div[role="radiogroup"] label:has(input:checked),
         .st-key-subtabs div[role="radiogroup"] label:has(input:checked){
-            color:#ff4b4b; border-bottom:3px solid #ff4b4b;
+            color:#1A2B5E; border-bottom:3px solid #1A2B5E;
         }
         </style>
         """,
