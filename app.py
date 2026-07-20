@@ -22,7 +22,7 @@ from utils.analyze import (
     compare_findings,
 )
 from utils.auth import require_password
-from utils.loader import process_uploaded_document
+from utils.loader import process_uploaded_documents
 from utils.memo import load_memos, save_memos
 from utils.ocr import ocr_pdf_pages
 from utils.pdf_utils import join_all_text
@@ -110,20 +110,25 @@ def render_document_section(label: str, session_key: str, upload_hint: str):
     upload_hint : 업로드 칸 안내 문구(괄호 안 내용)
     """
     st.header(f"{label} 업로드")
-
-    uploaded = st.file_uploader(
-        f"{label} 파일을 올려주세요 ({upload_hint})",
-        type=["pdf", "docx", "doc", "pptx", "ppt"],
-        key=f"uploader_{session_key}",  # 탭마다 업로더를 구분
+    st.caption(
+        f"{label}를 **워드+PDF로 함께** 올려주세요. "
+        f"워드가 있으면 글자 인식이 더 정확합니다. ({upload_hint})"
     )
 
-    if uploaded is None:
+    files = st.file_uploader(
+        f"{label} 파일 (워드/PDF)",
+        type=["pdf", "docx", "doc", "pptx", "ppt"],
+        accept_multiple_files=True,
+        key=f"uploader_{session_key}",  # 탭마다 업로더를 구분
+        label_visibility="collapsed",
+    )
+
+    if not files:
         st.info(f"위에 {label} 파일을 올리면 텍스트 추출이 시작됩니다.")
         return
 
-    # 같은 파일은 한 번만 처리 (새로고침 때마다 다시 읽지 않도록,
-    # 특히 OCR로 읽어둔 결과가 날아가지 않도록 보관)
-    file_sig = f"{uploaded.name}-{uploaded.size}"
+    # 같은 파일들은 한 번만 처리 (새로고침마다 다시 읽지 않도록, OCR 결과 보존)
+    file_sig = "|".join(sorted(f"{f.name}-{f.size}" for f in files))
     saved = st.session_state.get(session_key)
 
     if saved and saved.get("_sig") == file_sig:
@@ -135,7 +140,7 @@ def render_document_section(label: str, session_key: str, upload_hint: str):
             clear_analysis_results()
         with st.spinner(f"{label}을(를) 읽는 중..."):
             try:
-                result = process_uploaded_document(uploaded)
+                result = process_uploaded_documents(files)
             except Exception as e:
                 st.error(str(e))
                 return
@@ -147,6 +152,8 @@ def render_document_section(label: str, session_key: str, upload_hint: str):
     total_chars = sum(len(p["text"]) for p in pages)
 
     st.success(f"업로드·추출 완료: {result['name']}")
+    if result.get("status"):
+        st.caption(result["status"])
     st.write(f"총 **{total_pages}페이지**, 글자 수 약 **{total_chars:,}자** 를 읽었습니다.")
 
     # 글자가 거의 없으면 = 스캔(사진) PDF → OCR 안내 + 버튼
