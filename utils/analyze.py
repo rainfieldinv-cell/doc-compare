@@ -22,7 +22,8 @@ MODEL = "claude-opus-4-8"
 class ExtractFinding(BaseModel):
     group: str  # 이 내용이 속한 그룹(분류) 이름
     item: str  # 항목 이름 (예: 대출금액, 담보, 당연 EOD)
-    content: str  # 원문 핵심 내용
+    content: str  # 이해하기 쉽게 정리한 내용
+    quote: str = ""  # 근거가 된 계약서 '원문 그대로' (형광펜 표시용)
     page: Optional[int] = None  # 원본 페이지 번호
 
 
@@ -63,7 +64,8 @@ EXTRACT_SYSTEM = """당신은 금융 계약서·제안서를 검토하는 꼼꼼
 규칙:
 - 문서에 실제로 적힌 내용만 추출하세요. 추측하거나 지어내지 마세요.
 - page 에는 그 내용이 등장한 [페이지 N] 표시의 숫자 N을 넣으세요.
-- content 에는 원문 핵심을 담되 너무 길면 요약하세요.
+- content 에는 이해하기 쉽게 정리한 내용을 담되 너무 길면 요약하세요.
+- quote 에는 그 근거가 된 계약서 '원문 문장을 그대로' 복사하세요(요약·변형 금지). 이 문장으로 형광펜을 칠하므로 원문과 글자가 정확히 같아야 합니다. 너무 길면 핵심 한 문장만.
 - item 에는 그 내용이 어떤 항목인지 짧은 한국어 이름을 적으세요.
 - group 에는 아래 사용자가 제시한 '그룹명' 중 정확히 하나를 그대로 넣으세요.
 - 해당 내용이 없으면 그 그룹은 비워 두세요(억지로 만들지 말 것)."""
@@ -81,7 +83,7 @@ def _extract(pages: list, doc_label: str, api_key: str,
     user_prompt = (
         f"아래는 '{doc_label}' 문서의 전체 텍스트입니다.\n"
         f"{task_instructions}\n\n"
-        f"각 내용을 group/item/content/page 로 정리하세요. "
+        f"각 내용을 group/item/content/quote/page 로 정리하세요. "
         f"group 은 반드시 다음 중 하나로 정확히 표기: {group_names}\n\n"
         f"문서 텍스트:\n\"\"\"\n{document_text}\n\"\"\""
     )
@@ -108,6 +110,7 @@ def _group_findings(findings: list, group_names: list) -> dict:
         rec = {
             "항목": (f.item or "").strip(),
             "내용": (f.content or "").strip(),
+            "원문": (f.quote or "").strip(),
             "페이지": f.page,
         }
         key = name_by_norm.get(norm(f.group))

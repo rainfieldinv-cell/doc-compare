@@ -62,7 +62,7 @@ def clear_analysis_results():
         st.session_state.pop(k, None)
     # 확인 체크박스 등 부수 상태도 정리
     for k in list(st.session_state.keys()):
-        if k.startswith(("v4_", "v6_", "verified_")):
+        if k.startswith(("v4_", "v6_", "verified_", "findchk_")):
             st.session_state.pop(k, None)
 
 
@@ -233,20 +233,54 @@ def render_findings_column(label: str, doc_data: dict, findings: dict,
         for idx, item in enumerate(items):
             page = item.get("페이지")
             page_label = f"{page}페이지" if page else "페이지 미상"
+            chk_key = f"findchk_{label}_{category}_{idx}"
             with st.container(border=True):
-                st.markdown(f"**{item.get('항목','(항목 없음)')}**  ·  📄 {page_label}")
-                st.write(item.get("내용", ""))
+                cc0, cc1 = st.columns([0.12, 0.88])
+                # 확인 체크박스 (직접 확인한 항목 표시)
+                cc0.checkbox("확인", key=chk_key, label_visibility="collapsed")
+                with cc1:
+                    st.markdown(f"**{item.get('항목','(항목 없음)')}**  ·  📄 {page_label}")
+                    st.write(item.get("내용", ""))
 
-                # 원본 페이지 이미지 보기 (펼치기)
-                if page:
-                    with st.expander(f"🔍 원본 {page_label} 이미지 보기"):
-                        try:
-                            img = cached_page_image(
-                                doc_data["pdf_path"], page, item.get("내용", "")
-                            )
-                            st.image(img, use_container_width=True)
-                        except Exception as e:
-                            st.caption(f"이미지를 만들지 못했습니다: {e}")
+                    # 원본 페이지 이미지 보기 (형광펜은 '원문'으로 칠함)
+                    if page:
+                        with st.expander(f"🔍 원본 {page_label} 이미지 보기 (형광펜)"):
+                            try:
+                                highlight = item.get("원문") or item.get("내용", "")
+                                img = cached_page_image(
+                                    doc_data["pdf_path"], page, highlight
+                                )
+                                st.image(img, use_container_width=True)
+                            except Exception as e:
+                                st.caption(f"이미지를 만들지 못했습니다: {e}")
+
+
+def _sticky_findings_progress(findings_c: dict, findings_im: dict, categories):
+    """찾은 항목 확인 진행바 — 스크롤해도 위에 고정(sticky)."""
+    def count(findings, who):
+        total = done = 0
+        for cat in categories:
+            for idx in range(len(findings.get(cat, []))):
+                total += 1
+                if st.session_state.get(f"findchk_{who}_{cat}_{idx}"):
+                    done += 1
+        return done, total
+
+    dc, tc = count(findings_c, "계약서")
+    di, ti = count(findings_im, "제안서")
+    done, total = dc + di, tc + ti
+
+    st.markdown(
+        "<style>.st-key-findprog{position:sticky;top:3.2rem;z-index:900;"
+        "background:#ffffff;padding:6px 0;border-bottom:1px solid #e6e6e6;}</style>",
+        unsafe_allow_html=True,
+    )
+    with st.container(key="findprog"):
+        st.progress(
+            (done / total) if total else 0.0,
+            text=f"확인 완료: {done} / {total} 항목  "
+            f"(계약서 {dc}/{tc} · 제안서 {di}/{ti})",
+        )
 
 
 def render_step3():
@@ -286,7 +320,11 @@ def render_step3():
 
     # 분석 결과가 있으면 좌우 분할로 표시
     if "findings_contract" in st.session_state and "findings_im" in st.session_state:
-        st.divider()
+        _sticky_findings_progress(
+            st.session_state["findings_contract"],
+            st.session_state["findings_im"],
+            ["금융조건"],
+        )
         left, right = st.columns(2)
         with left:
             render_findings_column(
@@ -505,7 +543,11 @@ def render_step5():
 
     # 결과가 있으면 좌우 분할(4개 그룹)로 표시
     if "rights_contract" in st.session_state and "rights_im" in st.session_state:
-        st.divider()
+        _sticky_findings_progress(
+            st.session_state["rights_contract"],
+            st.session_state["rights_im"],
+            RIGHTS_GROUPS,
+        )
         left, right = st.columns(2)
         with left:
             render_findings_column(
