@@ -83,7 +83,7 @@ st.set_page_config(page_title="계약서·제안서(IM) 비교", layout="wide")
 # 🔒 비밀번호 확인 (맞아야 아래 화면이 보임)
 require_password()
 
-st.title("📑 계약서·제안서(IM) 비교")
+st.title("계약서·제안서(IM) 비교")
 
 # 안내문 (법적 판단 아님)
 st.warning(
