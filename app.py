@@ -16,12 +16,14 @@ import uuid
 import streamlit as st
 
 from utils.analyze import (
+    EXTRA_KEYWORD_GROUP,
     RIGHTS_GROUPS,
     analyze_financial,
     analyze_rights,
     compare_findings,
 )
 from utils.auth import require_password
+from utils.keywords import load_keywords
 from utils.loader import process_uploaded_documents
 from utils.memo import load_memos, save_memos
 from utils.ocr import ocr_pdf_pages
@@ -500,6 +502,57 @@ def render_step6():
     )
 
 
+# 구글 시트(검토 키워드) 기본 주소 — secrets 로 덮어쓸 수 있음(공개 시트라 하드코딩 OK)
+DEFAULT_KEYWORD_SHEET_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "1CY--x7Z6mPUdCYfSN6Oh0qQuLLhGTm8ybz5hj_kyZUI/edit?usp=sharing"
+)
+
+
+def _get_keyword_sheet_url() -> str:
+    try:
+        return st.secrets.get("keyword_sheet_url", DEFAULT_KEYWORD_SHEET_URL)
+    except Exception:
+        return DEFAULT_KEYWORD_SHEET_URL
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_keywords_cached(url: str) -> dict:
+    return load_keywords(url)
+
+
+def _render_keyword_panel():
+    """구글 시트에서 읽은 검토 키워드를 보여주고, 전체 키워드 리스트를 반환."""
+    sheet_url = _get_keyword_sheet_url()
+    data = {"all": [], "by_contract": {}}
+    err = None
+    try:
+        data = _load_keywords_cached(sheet_url)
+    except Exception as e:
+        err = str(e)
+
+    with st.container(border=True):
+        top1, top2 = st.columns([0.75, 0.25])
+        top1.markdown("**📋 시트 검토 키워드** (구글 시트 연동)")
+        if top2.button("🔄 키워드 새로고침", key="kw_refresh"):
+            _load_keywords_cached.clear()
+            st.rerun()
+
+        if err:
+            st.warning(f"키워드 시트를 읽지 못했습니다: {err}")
+        elif data["all"]:
+            st.caption(f"아래 키워드들도 계약서에서 함께 찾습니다 (총 {len(data['all'])}개):")
+            for contract, kws in data["by_contract"].items():
+                st.markdown(f"- **{contract}** : {', '.join(kws)}")
+        else:
+            st.caption(
+                f"시트에 키워드가 아직 없습니다. [시트 열기]({sheet_url}) 에서 "
+                "계약서 아래에 단어를 넣으면 여기에 표시되고 함께 찾아줍니다. "
+                "(넣은 뒤 '🔄 키워드 새로고침')"
+            )
+    return data["all"]
+
+
 def render_step5():
     st.header("5단계: 권리·통제 구조 찾기")
     st.caption(
@@ -520,40 +573,46 @@ def render_step5():
         st.error("Anthropic(클로드) API 키가 설정되지 않았습니다.")
         return
 
+    # 구글 시트 키워드 패널 (전체 키워드 목록을 받아 분석에 함께 사용)
+    extra_keywords = _render_keyword_panel()
+
     st.write("아래 버튼을 누르면 두 문서에서 권리·통제 구조 항목을 찾습니다. (수십 초 걸릴 수 있어요)")
 
     if st.button("🔎 권리·통제 구조 찾기 실행", type="primary", key="run_step5"):
         with st.spinner("계약서 분석 중..."):
             st.session_state["rights_contract"] = analyze_rights(
-                st.session_state["contract"]["pages"], "계약서", api_key
+                st.session_state["contract"]["pages"], "계약서", api_key,
+                extra_keywords=extra_keywords,
             )
         with st.spinner("제안서 분석 중..."):
             st.session_state["rights_im"] = analyze_rights(
-                st.session_state["im"]["pages"], "제안서", api_key
+                st.session_state["im"]["pages"], "제안서", api_key,
+                extra_keywords=extra_keywords,
             )
         st.success("분석 완료!")
 
-    # 결과가 있으면 좌우 분할(4개 그룹)로 표시
+    # 결과가 있으면 좌우 분할로 표시 (키워드 결과가 있으면 그 그룹도 추가)
     if "rights_contract" in st.session_state and "rights_im" in st.session_state:
-        _sticky_findings_progress(
-            st.session_state["rights_contract"],
-            st.session_state["rights_im"],
-            RIGHTS_GROUPS,
-        )
+        rc = st.session_state["rights_contract"]
+        ri = st.session_state["rights_im"]
+        display_cats = list(RIGHTS_GROUPS)
+        if rc.get(EXTRA_KEYWORD_GROUP) or ri.get(EXTRA_KEYWORD_GROUP):
+            display_cats.append(EXTRA_KEYWORD_GROUP)
+        _sticky_findings_progress(rc, ri, display_cats)
         left, right = st.columns(2)
         with left:
             render_findings_column(
                 "계약서",
                 st.session_state["contract"],
                 st.session_state["rights_contract"],
-                RIGHTS_GROUPS,
+                display_cats,
             )
         with right:
             render_findings_column(
                 "제안서",
                 st.session_state["im"],
                 st.session_state["rights_im"],
-                RIGHTS_GROUPS,
+                display_cats,
             )
 
 
